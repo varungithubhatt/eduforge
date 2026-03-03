@@ -34,8 +34,9 @@ export async function POST(req: NextRequest) {
     }).returning();
        
 
-    return NextResponse.json(courseResult[0]);
-
+    return NextResponse.json(
+  JSON.parse(JSON.stringify(courseResult[0]))
+);
   } catch (error) {
     console.error(error);
     return NextResponse.json(

@@ -24,11 +24,13 @@ import { QUICK_VIDEO_SUGGESTIONS } from '@/data/constant'
 import { set } from 'date-fns'
 import { se } from 'date-fns/locale'
 import { SignInButton, useUser } from '@clerk/nextjs'
+import { useRouter } from 'next/dist/client/components/navigation'
 const Hero = () => {
     const [userInput,setUserInput] = useState('');
     const [type,setType] = useState('full-course');
     const [loading,setLoading] = useState(false);
     const {user} = useUser();
+    const router = useRouter();
     const GenerateCouseLayout = async()=>{
          const toastId= toast.loading('Generating Course Layout...');
      try{
@@ -44,6 +46,7 @@ const Hero = () => {
         toast.success('Course Layout Generated Successfully',{id:toastId});
 
         //navigate course layout
+        router.push('/course/'+result.data.courseId);
 
     }catch(error){
         setLoading(false);
