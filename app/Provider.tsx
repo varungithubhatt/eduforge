@@ -4,6 +4,7 @@ import axios from 'axios';
 import { User } from 'lucide-react';
 import { UserDetailContext } from '@/context/UserDetailContext';
 import { set } from 'date-fns';
+import Header from './_components/Header';
 const Provider = ({children}:{children:React.ReactNode}) => {
 
     const [userdetail,setUserDetail] = useState(null);
@@ -21,6 +22,7 @@ const Provider = ({children}:{children:React.ReactNode}) => {
     <div>
         <UserDetailContext.Provider value={{userdetail,setUserDetail}}>
             <div className='max-w-7xl mx-auto'>
+                 <Header />
                 {children}
             </div>
         
