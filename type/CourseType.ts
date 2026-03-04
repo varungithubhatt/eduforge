@@ -5,6 +5,7 @@ export type Course = {
     createdAt: string;
     id: number;
    courseLayout: CourseLayout;
+   chapterContentSlides: ChapterContentSlide[];
 }
 
 export type CourseLayout = {
@@ -21,4 +22,18 @@ export type Chapter = {
     chapterId: string;
     chapterTitle: string;
     subContent: string[];
+}
+
+export type ChapterContentSlide = {
+    id: number;
+    courseId: string;
+    chapterId: string;
+    slideId: string;
+    slideIndex: number;
+    audioFileName: string;
+    narration: {
+        fullText: string;   
+    };
+    html: string;
+    revelData: string[];
 }
