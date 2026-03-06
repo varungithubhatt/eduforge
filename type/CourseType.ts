@@ -36,4 +36,8 @@ export type ChapterContentSlide = {
     };
     html: string;
     revelData: string[];
+    audioFileUrl: string;
+    caption:{
+        chunks:string[]
+    }
 }

@@ -1,13 +1,13 @@
+
 import { NextRequest, NextResponse } from "next/server"
 import { client } from "@/config/openai";
 import { Generate_Video_Prompt } from "@/data/prompt";
-import { Video } from "lucide-react";
-import { VideoSlides } from "@/data/dummy";
 import axios from "axios";
 import { v2 as cloudinary } from "cloudinary";
 import { db } from "@/config/db";
 import { chapterContentSlides } from "@/config/schema";
 
+// Cloudinary configuration for storing generated audio files
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME!,
   api_key: process.env.CLOUDINARY_API_KEY!,
@@ -16,107 +16,156 @@ cloudinary.config({
 
 export async function POST(req: NextRequest) {
 
-const { chapter, courseId } = await req.json();
+  // Extract chapter + courseId from request body
+  const { chapter, courseId } = await req.json();
 
-//gen json schema for video content
-
- const response = await client.chat.completions.create({
-  model: "llama-3.1-8b-instant",
+  // -----------------------------
+  // 1️⃣ Generate slide content using LLM
+  // -----------------------------
+  const response = await client.chat.completions.create({
+    model: "llama-3.1-8b-instant",
     response_format: { type: "json_object" },
-  messages: [
-    { role: "system", content: Generate_Video_Prompt },
-    { role: "user", content: `Chapter details are ${JSON.stringify(chapter)}` }
-  ],
-  temperature: 0.7
-});
+    messages: [
+      { role: "system", content: Generate_Video_Prompt },
+      { role: "user", content: `Chapter details are ${JSON.stringify(chapter)}` }
+    ],
+    temperature: 0.7
+  });
 
-const Result=response.choices[0].message?.content || "";
-const parsed = JSON.parse(Result?.replaceAll('```json','').replace('```','') || '{}');
-const VideoContentJSON = parsed.slides || [];
+  const Result = response.choices[0].message?.content || "";
 
-//audio file 
+  // Safe JSON parsing because AI sometimes returns markdown wrappers
+  let parsed: any = {};
+  try {
+    parsed = JSON.parse(Result.replace(/```json|```/g, ""))
+  } catch (err) {
+    console.error("AI JSON parse error", err)
+  }
 
-//const VideoContentJSON = VideoSlides;
-const audioFileUrls: string[] = [];   // ✅ added
+  // Extract slides array from parsed result
+  const VideoContentJSON = parsed.slides || [];
 
-for (let i = 0; i < VideoContentJSON?.length; i++) {
+  // -----------------------------
+  // 2️⃣ Generate audio using TTS
+  // -----------------------------
+  const audioFileUrls: string[] = [];
 
- if (i > 0) break; //for testing only one slide content generation
+  for (let i = 0; i < VideoContentJSON?.length; i++) {
 
-  const narration = VideoContentJSON[i].narration.fullText;
+    const narration = VideoContentJSON[i]?.narration?.fullText || "";
 
-  const fonadaResult = await axios.post(
-    "https://api.fonada.ai/tts/generate-audio-large",
-    {
-      input: narration,
-      voice: "Vaanee",
-      language: "English",
-    },
-    {
-      headers: {
-        Authorization: `Bearer ${process.env.FONADALABS_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      responseType: "arraybuffer",
-      timeout: 120000,
+    try {
+
+      const fonadaResult = await axios.post(
+        "https://api.fonada.ai/tts/generate-audio-large",
+        {
+          input: narration,
+          voice: "Vaanee",
+          language: "English",
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${process.env.FONADALABS_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          responseType: "arraybuffer",
+          timeout: 120000,
+        }
+      );
+
+      const audioBuffer = Buffer.from(fonadaResult.data);
+
+      // Upload generated audio to Cloudinary
+      const audioUrl = await SaveAudioToStorage(
+        audioBuffer,
+        VideoContentJSON[i].audioFileName
+      );
+
+      audioFileUrls.push(audioUrl);
+
+    } catch (error) {
+
+      console.error("TTS generation failed", error)
+
+      // push empty url so indexes remain aligned
+      audioFileUrls.push("");
     }
-  );
 
-  const audioBuffer = Buffer.from(fonadaResult.data);
-  console.log(audioBuffer);
+  }
 
-  const audioUrl = await SaveAudioToStorage(
-    audioBuffer,
-    VideoContentJSON[i].audioFileName
-  );
+  // -----------------------------
+  // 3️⃣ Generate captions using Deepgram
+  // -----------------------------
+  let captionsArray: any[] = [];
 
-  console.log(audioUrl);
+  for (let i = 0; i < audioFileUrls.length; i++) {
 
-  audioFileUrls.push(audioUrl);
+    try {
+
+      let captions = await GenerateCaptions(audioFileUrls[i]);
+      captionsArray.push(captions);
+
+    } catch (error) {
+
+      console.error("Caption generation failed", error)
+
+      // fallback caption so DB doesn't crash
+      captionsArray.push("");
+    }
+
+  }
+
+  // -----------------------------
+  // 4️⃣ Save slides to database
+  // -----------------------------
+  for (let index = 0; index < VideoContentJSON.length; index++) {
+
+    try {
+
+      await db.insert(chapterContentSlides).values({
+        chapterId: chapter.chapterId,
+        courseid: courseId,
+
+        slideIndex: VideoContentJSON[index].slideIndex,
+        slideId: VideoContentJSON[index].slideId,
+
+        audioFileName: VideoContentJSON[index].audioFileName,
+
+        narration: VideoContentJSON[index].narration,
+
+        // Prevent NULL constraint error
+        revelData: VideoContentJSON[index].revelData ?? [],
+
+        html: VideoContentJSON[index].html,
+
+        audioFileUrl: audioFileUrls[index] ?? "",
+
+        // captions are text → fallback empty string
+        caption: captionsArray[index] ?? ""
+      }).returning();
+
+    } catch (error) {
+
+      console.error("DB insert failed", error)
+
+    }
+
+  }
+
+  // -----------------------------
+  // 5️⃣ Return generated data
+  // -----------------------------
+  return NextResponse.json({
+    VideoContentJSON,
+    audioFileUrls,
+    captionsArray
+  });
+
 }
 
-//storage
-
-//gen captions
-let captionsArray: any[] = [];
-for(let i=0;i<audioFileUrls.length;i++){
- if(i>0) break;//for testing only one slide content generation
- let  captions = await GenerateCaptions(audioFileUrls[i]);
- captionsArray.push(captions);
- console.log(captionsArray)
-}
-
-//save everything to db
-for (let index = 0; index < VideoContentJSON.length; index++) {
- if (index > 0) break;
-  //@ts-ignore
-  const result = await db.insert(chapterContentSlides).values({
-    chapterId: chapter.chapterId,
-    courseid: courseId,
-    slideIndex: VideoContentJSON[index].slideIndex,
-    slideId: VideoContentJSON[index].slideId,
-    audioFileName: VideoContentJSON[index].audioFileName,
-    narration: VideoContentJSON[index].narration,
-    revelData: VideoContentJSON[index].revelData,
-    html: VideoContentJSON[index].html,
-    audioFileUrl: audioFileUrls[index],
-    caption: captionsArray[index] ?? {}
-  }).returning();
-
-}
-
-
-
-//return response 
-
-return NextResponse.json({
-  VideoContentJSON,
-  audioFileUrls,
-  captionsArray
-});
-
-}
-
+// -----------------------------
+// Upload audio buffer to Cloudinary
+// -----------------------------
 const SaveAudioToStorage = async (
   audioBuffer: Buffer,
   fileName: string
@@ -126,8 +175,8 @@ const SaveAudioToStorage = async (
 
     const uploadStream = cloudinary.uploader.upload_stream(
       {
-        resource_type: "video", // required for audio
-        public_id: fileName,
+        resource_type: "video", // required for audio uploads
+       public_id: fileName.replace(".mp3",""),
         format: "mp3"
       },
       (error, result) => {
@@ -146,6 +195,9 @@ const SaveAudioToStorage = async (
   })
 }
 
+// -----------------------------
+// Generate captions using Deepgram
+// -----------------------------
 const GenerateCaptions = async (audioUrl: string) => {
 
   const response = await axios.post(
@@ -164,7 +216,6 @@ const GenerateCaptions = async (audioUrl: string) => {
   const transcript =
     response.data.results.channels[0].alternatives[0].transcript;
 
-  console.log("Transcript:", transcript);
-
   return transcript;
 };
+
