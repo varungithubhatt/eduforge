@@ -13,6 +13,9 @@ const appfont = DM_Sans({
 export const metadata: Metadata = {
   title: "Eduforge",
   description: "ai video Course Generator",
+  icons: {
+    icon: "/logo.png",
+  },
 };
 
 export default function RootLayout({
