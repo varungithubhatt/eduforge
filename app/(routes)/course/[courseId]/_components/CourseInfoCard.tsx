@@ -1,12 +1,31 @@
-import React from 'react'
+'use client'
+
+import React, { useEffect, useMemo, useState } from 'react'
 import { Course } from '@/type/CourseType';
 import { BookOpen, ChartNoAxesColumnIncreasing,  Sparkles } from 'lucide-react';
 import { Player } from '@remotion/player';
-import ChapterVideo from './ChapterVideo';
+
+import {getAudioData} from '@remotion/media-utils'
+import { CourseComposition } from './ChapterVideo';
 type Props = {
     course: Course | undefined;
+    durationbyslideId: Record<string,number> | null;
 }
-const CourseInfoCard = ({course}:Props) => {
+const CourseInfoCard = ({course, durationbyslideId}:Props) => {
+    const fps=30;
+    const slides=course?.chapterContentSlides??[];
+    console.log('durationbyslideId',durationbyslideId) 
+
+    const durationInFrames=useMemo(()=>{
+        if(!durationbyslideId) return;
+        return slides.reduce((sum,slide)=>sum+(durationbyslideId[slide.slideId]??fps*6),0)
+    },[slides,durationbyslideId,fps])
+
+
+    if(!durationbyslideId){
+        return <div>Loading...</div>
+    }
+
   return (
     <div>
         <div className='p-20 grid grid-cols-1 md:grid-cols-2 gap-5 bg-gradient-to-br from-slate-950 via-slate-800 to-slate-950 rounded-lg'>
@@ -21,8 +40,13 @@ const CourseInfoCard = ({course}:Props) => {
     </div>
     <div className='border-2 border-white/10 rounded-2xl '>
         <Player
-        component={ChapterVideo}
-        durationInFrames={30}
+        component={CourseComposition}
+        inputProps={{
+            //@ts-ignore
+            slides:slides,
+            durationsBySlideId:durationbyslideId
+        }}
+        durationInFrames={durationInFrames&& durationInFrames!==0?durationInFrames:30}
         compositionWidth={1280}
         compositionHeight={720}
         fps={30}
