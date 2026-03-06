@@ -43,6 +43,13 @@ const Hero = () => {
         });
         console.log(result.data);
         setLoading(false);
+
+        if(result?.data?.msg=='max limit'){
+            toast.error('Maximum Course Created! Try Monthly Plan',{id:toastId})
+             setLoading(false);
+            return;
+        }
+
         toast.success('Course Layout Generated Successfully',{id:toastId});
 
         //navigate course layout
